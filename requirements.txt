@@ -2,11 +2,11 @@ streamlit == 1.42.1
 stmol == 0.0.9
 py3Dmol == 2.4.2
 requests == 2.32.3
-numpy == 2.2.3
-matplotlib == 3.10.0
+numpy == 1.26.4
+matplotlib == 3.8.3
 mdtraj == 1.10.3
 biotite == 1.1.0
-asyncio == 3.4.3
 aiohttp == 3.11.12
 seaborn == 0.13.2
 biopython == 1.85
+ipython_genutils == 0.2.0
