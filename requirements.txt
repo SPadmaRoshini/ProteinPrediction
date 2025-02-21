@@ -1,1 +1,13 @@
-
+streamlit
+stmol
+py3Dmol
+requests
+re
+numpy
+matplotlib
+mdtraj
+biotite
+asyncio
+aiohttp
+seaborn
+biopython
