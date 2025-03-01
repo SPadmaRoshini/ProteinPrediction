@@ -20,11 +20,12 @@ st.set_page_config(layout='wide')
 st.sidebar.title('GNN-Transformer')
 
 # Input Selection
-input_choice = st.sidebar.radio("Select Input Type", ["Protein Sequence", "PDB ID", "Upload PDB File"])
+input_choice = st.sidebar.radio("Select Input Type", ["Protein Sequence", "Upload PDB File"])
 
 # Visualization Settings
 st.sidebar.subheader("Visualization Settings")
 vis_style = st.sidebar.selectbox("Molecular Visualization Style", ["cartoon", "stick", "surface", "sphere"])
+color_scheme = st.sidebar.selectbox("Color Scheme", ["spectrum", "rainbow", "monochrome"])
 
 # Default protein sequence
 DEFAULT_SEQ = ""
@@ -39,14 +40,33 @@ solvent_accessibility = st.sidebar.selectbox('Solvent Accessibility', ['Buried',
 if "critical_residues" not in st.session_state:
     st.session_state.critical_residues = []
 
-user_input = ""
-
 # Function to render molecule with highlighted residues
-def render_mol(pdb, highlight_residues=None, style="cartoon"):
+def render_mol(pdb, highlight_residues=None, style="cartoon", color_scheme="spectrum"):
     pdbview = py3Dmol.view()
     pdbview.addModel(pdb, 'pdb')
-    pdbview.setStyle({style: {'color': 'spectrum'}})
     
+    # Apply the selected color scheme
+    if color_scheme == "spectrum":
+        pdbview.setStyle({style: {'color': 'spectrum'}})
+    elif color_scheme == "rainbow":
+        # Manually define a rainbow gradient
+        rainbow_colors = [
+            "red", "orange", "yellow", "green", "blue", "indigo", "violet"
+        ]
+        num_residues = len(pdb.split("\n"))  # Approximate number of residues
+        for i, line in enumerate(pdb.split("\n")):
+            if line.startswith("ATOM"):
+                residue_index = int(line[22:26].strip())  # Extract residue index
+                color = rainbow_colors[(residue_index % len(rainbow_colors))]  # Cycle through colors
+                pdbview.setStyle(
+                    {'resi': residue_index},
+                    {style: {'color': color}}
+                )
+    elif color_scheme == "monochrome":
+        # Use a single color (e.g., gray) for monochrome
+        pdbview.setStyle({style: {'color': 'gray'}})
+    
+    # Highlight specified residues
     if highlight_residues:
         for residue in highlight_residues:
             pdbview.addStyle(
@@ -61,56 +81,26 @@ def render_mol(pdb, highlight_residues=None, style="cartoon"):
     showmol(pdbview, height=500, width=800)
     
 # Function to validate protein sequence
-def validate_input(input_choice, user_input):
-    """Validates protein sequences, PDB IDs, and extracted sequences from PDB files."""
-    
-    # Validation for Protein Sequences
-    if input_choice == "Protein Sequence":
-        if not user_input:
-            return False, "Protein sequence is empty."
-        if not re.match("^[ACDEFGHIKLMNPQRSTVWY]+$", user_input.strip()):
-            return False, "Protein sequence contains invalid characters."
-    
-    # Validation for PDB IDs (should be exactly 4 alphanumeric characters)
-    elif input_choice == "PDB ID":
-        if not re.match(r"^[0-9A-Za-z]{4}$", user_input.strip()):
-            return False, "PDB ID must be exactly 4 alphanumeric characters (e.g., 1CRN)."
-    
-    # Validation for PDB File (Extracted sequence must be valid)
-    elif input_choice == "Upload PDB File":
-        extracted_sequence = extract_sequence_from_pdb(user_input)  # Get sequence from PDB file
-        if not extracted_sequence:
-            return False, "Failed to extract sequence from the uploaded PDB file."
-        if not re.match("^[ACDEFGHIKLMNPQRSTVWY]+$", extracted_sequence.strip()):
-            return False, "Extracted sequence from PDB file contains invalid characters."
-    
+def validate_sequence(sequence):
+    if not sequence:
+        return False, "Sequence is empty."
+    if not re.match("^[ACDEFGHIKLMNPQRSTVWY]*$", sequence):
+        return False, "Sequence contains invalid characters."
     return True, ""
-
 
 # Function to fetch PDB structure from ESMFold API
 @st.cache_data
-def fetch_pdb(input_choice, user_input):
-    if input_choice == "Protein Sequence":
-        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-        response = requests.post(
-            'https://api.esmatlas.com/foldSequence/v1/pdb/',
-            headers=headers,
-            data=user_input
-        )
-    elif input_choice == "PDB ID":
-        url = f'https://files.rcsb.org/download/{user_input}.pdb'
-        response = requests.get(url)  
-    else:
-        return None
-
+def fetch_pdb(sequence):
+    headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+    response = requests.post('https://api.esmatlas.com/foldSequence/v1/pdb/', headers=headers, data=sequence)
     if response.status_code == 200:
-        return response.text
+        return response.content.decode('utf-8')
     else:
         st.error(f"Failed to fetch PDB structure. Status code: {response.status_code}")
         return None
 
-
 # Function to calculate residue contact map
+@st.cache_data
 def compute_contact_map(pdb_file):
     traj = md.load_pdb(pdb_file)
     dist, _ = md.compute_contacts(traj, scheme='ca')
@@ -257,39 +247,22 @@ async def fetch_pdb_async(sequence):
                 return None
 
 # Function to update and display the protein structure
-def update(user_input, input_choice, pH, temperature, solvent_accessibility, highlight_residues, pdb_file=None):
+def update(sequence, ph, temperature, solvent_accessibility, highlight_residues=None, pdb_file=None):
     with st.spinner('Predicting protein structure...'):
-        sequence = ""  # Ensure sequence is always initialized
-        pdb_string ="" 
-
-        # Case 1: User uploaded a PDB file
         if pdb_file:
+            pdb_string = pdb_file
             st.sidebar.success("Using uploaded PDB structure")
+
+            # Extract sequence from the uploaded PDB file
             sequence = extract_sequence_from_pdb(pdb_file)
             st.write(f"Extracted Sequence: {sequence}")
 
-        # Case 2: User entered a protein sequence
-        elif input_choice == "Protein Sequence":
-            pdb_string = fetch_pdb(input_choice, user_input)
-            sequence = user_input.strip()
-
-        # Case 3: User entered a PDB ID
-        elif input_choice == "PDB ID":
-            pdb_string = fetch_pdb(input_choice, user_input)
-            if pdb_string:
-                pdb_filename = "temp.pdb"
-                with open(pdb_filename, "w") as f:
-                    f.write(pdb_string)
-                sequence = extract_sequence_from_pdb(pdb_filename)
-                st.write(f"Extracted Sequence from PDB ID: {sequence}")
-            else:
-                st.error("Failed to fetch the PDB structure.")
+        else:
+            if not sequence:
+                st.error("No sequence provided. Please enter a sequence or upload a PDB file.")
                 return
-
-        # Check if sequence is valid before proceeding
-        if not sequence:
-            st.error("No valid sequence found. Please enter a valid sequence or PDB file.")
-            return
+            
+            pdb_string = fetch_pdb(sequence)
 
         if pdb_string:
             name = sequence[:3] + sequence[-3:] if sequence else "predicted"
@@ -297,21 +270,20 @@ def update(user_input, input_choice, pH, temperature, solvent_accessibility, hig
             with open(pdb_filename, 'w') as f:
                 f.write(pdb_string)
 
-
             struct = bsio.load_structure('predicted.pdb', extra_fields=["b_factor"])
             b_value = round(struct.b_factor.mean(), 4)
 
             st.subheader('Visualization of predicted protein structure')
-            render_mol(pdb_string, highlight_residues, style=vis_style)
+            render_mol(pdb_string, highlight_residues, style=vis_style, color_scheme=color_scheme)  # Updated here
 
             st.subheader('plDDT')
             st.write('plDDT is a per-residue estimate of the confidence in prediction on a scale from 0-100.')
             st.info(f'plDDT: {b_value}')
 
             st.subheader('Environmental Factors')
-            st.write(f"*pH:* {pH}")
-            st.write(f"*Temperature:* {temperature} °C")
-            st.write(f"*Solvent Accessibility:* {solvent_accessibility}")
+            st.write(f"pH: {ph}")
+            st.write(f"Temperature: {temperature} °C")
+            st.write(f"Solvent Accessibility: {solvent_accessibility}")
 
             if highlight_residues:
                 st.subheader('Critical Residues and Interactions')
@@ -333,31 +305,10 @@ def update(user_input, input_choice, pH, temperature, solvent_accessibility, hig
             plot_ramachandran(pdb_filename)
                 
             # Sequence Properties
-            if input_choice == "Protein Sequence":
-                if re.match("^[ACDEFGHIKLMNPQRSTVWY]+$", sequence):  # ✅ Ensure it's a valid protein sequence
-                    properties = compute_sequence_properties(sequence)
-                    st.subheader("Sequence Properties")
-                    for key, value in properties.items():
-                        st.write(f"**{key}:** {round(value, 3)}")
-            elif input_choice in ["PDB ID", "Upload PDB File"]:
-                pdb_string = fetch_pdb(input_choice, user_input)  # Fetch PDB file
-                if pdb_string:
-                    pdb_filename = "temp.pdb"
-                    with open(pdb_filename, "w") as f:
-                        f.write(pdb_string)
-        
-                    sequence = extract_sequence_from_pdb(pdb_filename)  # Extract sequence from PDB
-                    properties = compute_sequence_properties(sequence)
-                    st.subheader("Sequence Properties")
-                    for key, value in properties.items():
-                        st.write(f"**{key}:** {round(value, 3)}")
-                    if not sequence:
-                        st.error("Failed to extract sequence from the PDB structure.")
-                        return
-                else:
-                    st.error("Failed to fetch the PDB structure.")
-                    return
-
+            st.subheader("Sequence Properties")
+            properties = compute_sequence_properties(sequence)
+            for key, value in properties.items():
+                st.write(f"{key}: {round(value, 3)}")
 
             # Molecular Dynamics Simulation
             st.subheader('Molecular Dynamics Simulation')
@@ -381,34 +332,32 @@ def update(user_input, input_choice, pH, temperature, solvent_accessibility, hig
 # User input section
 st.title('Protein Structure Prediction & Stability Analysis')
 # Protein sequence input
-# Ensure `user_input` is always defined
+# sequence_input = st.text_area("Enter Protein Sequence", DEFAULT_SEQ, height=150)
 if input_choice == "Protein Sequence":
-    user_input = st.text_area("Enter Protein Sequence", DEFAULT_SEQ, height=100)
-elif input_choice == "PDB ID":
-    user_input = st.text_input("Enter PDB ID (e.g., 1CRN)", "")
-elif input_choice == "Upload PDB File":
+    sequence_input = st.text_area("Enter Protein Sequence", DEFAULT_SEQ, height=100)
+else:
     uploaded_pdb = st.file_uploader("Upload PDB File", type=["pdb"])
     if uploaded_pdb:
         pdb_path = "uploaded.pdb"
         with open(pdb_path, "wb") as f:
             f.write(uploaded_pdb.getbuffer())
+        sequence_input = pdb_path
+
         # Extract sequence from the uploaded PDB file
-        user_input = extract_sequence_from_pdb(pdb_path)
+        sequence_input = extract_sequence_from_pdb(pdb_path)
+
         # Display extracted sequence
-        st.write(f"Extracted Sequence: {user_input}")
+        st.write(f"Extracted Sequence: {sequence_input}")
 
 # Critical residues input
 st.sidebar.subheader('Critical Residues')
 highlight_residues = st.sidebar.text_input("Enter residue numbers to highlight (comma-separated, e.g., 10, 20, 30):")
 highlight_residues = [int(res.strip()) for res in highlight_residues.split(",") if res.strip().isdigit()] if highlight_residues else None
 
-predict_clicked = st.button('Predict', key="predict_button")
-if predict_clicked:
-    if not user_input:
-        st.warning("Please enter a valid input (Protein Sequence, PDB ID, or Upload a PDB file).")
+# Predict button
+if st.button('Predict', key="predict_button"):
+    is_valid, message = validate_sequence(sequence_input)
+    if is_valid:
+        update(sequence_input, pH, temperature, solvent_accessibility, highlight_residues)
     else:
-        is_valid, message = validate_input(input_choice, user_input)
-        if not is_valid:
-            st.error(message)
-        else:
-            update(user_input, input_choice, pH, temperature, solvent_accessibility, highlight_residues)
+        st.error(message)
