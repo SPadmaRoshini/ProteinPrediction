@@ -25,22 +25,21 @@ Prerequisites
 
 Ensure you have Python installed (>=3.8). This project is hosted and developed in GitHub Codespaces.
 
-Clone the Repository
+Clone the Repository : 
 
 git clone https://github.com/SPadmaRoshini/ProteinPrediction.git
+
 cd ProteinPrediction
 
-Install Dependencies
+Install Dependencies : 
 
 pip install -r requirements.txt
 
-Usage
+# Usage
 
-Running the Streamlit App
+Running the Streamlit App : 
 
 streamlit run app.py
-
-Model Training and Testing
 
 API Integration
 
