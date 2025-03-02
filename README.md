@@ -45,11 +45,11 @@ API Integration
 
 This app fetches protein structure and sequence data via APIs instead of manual uploads. Ensure you have network access to fetch data dynamically.
 
-License
+# License
 
 This project is licensed under the MIT License. See LICENSE for details.
 
-Contact
+# Contact
 
 For issues and contributions, please open an issue in the repository or contact padma.roshini04@gmail.com.
 
