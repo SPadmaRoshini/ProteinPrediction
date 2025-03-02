@@ -25,7 +25,7 @@ input_choice = st.sidebar.radio("Select Input Type", ["Protein Sequence", "Uploa
 # Visualization Settings
 st.sidebar.subheader("Visualization Settings")
 vis_style = st.sidebar.selectbox("Molecular Visualization Style", ["cartoon", "stick", "surface", "sphere"])
-color_scheme = st.sidebar.selectbox("Color Scheme", ["spectrum", "rainbow", "monochrome"])
+color_scheme = st.sidebar.selectbox("Color Scheme", ["spectrum", "rainbow", "monochrome", "stability"])
 
 # Default protein sequence
 DEFAULT_SEQ = ""
@@ -41,11 +41,10 @@ if "critical_residues" not in st.session_state:
     st.session_state.critical_residues = []
 
 # Function to render molecule with highlighted residues
-def render_mol(pdb, highlight_residues=None, style="cartoon", color_scheme="spectrum"):
+def render_mol(pdb, highlight_residues=None, style="cartoon", color_scheme="spectrum", stability_scores=None):
     pdbview = py3Dmol.view()
     pdbview.addModel(pdb, 'pdb')
     
-    # Apply the selected color scheme
     if color_scheme == "spectrum":
         pdbview.setStyle({style: {'color': 'spectrum'}})
     elif color_scheme == "rainbow":
@@ -65,6 +64,14 @@ def render_mol(pdb, highlight_residues=None, style="cartoon", color_scheme="spec
     elif color_scheme == "monochrome":
         # Use a single color (e.g., gray) for monochrome
         pdbview.setStyle({style: {'color': 'gray'}})
+    elif color_scheme == "stability" and stability_scores:
+        # Color residues based on stability scores
+        for residue_index, score in stability_scores.items():
+            color = stability_color_gradient(score)
+            pdbview.setStyle(
+                {'resi': residue_index},
+                {style: {'color': color}}
+            )
     
     # Highlight specified residues
     if highlight_residues:
@@ -216,26 +223,45 @@ HYDROPHOBICITY = {
     'R': -4.5, 'S': -0.8, 'T': -0.7, 'V': 4.2, 'W': -0.9, 'Y': -1.3
 }
 
+#Function to calculate the stability
 def estimate_stability(sequence, pH, temperature, solvent_accessibility):
-    hydrophobicity_score = sum(HYDROPHOBICITY.get(aa, 0) for aa in sequence) / len(sequence)
-    
-    stability = 80
-    stability -= abs(pH - 7) * 2
-    stability += hydrophobicity_score * 5  # Increase impact of hydrophobicity
+    stability_scores = {}
+    total_score = 0  # To calculate the average
 
-    if temperature < 10 or temperature > 60:
-        stability -= 15
-    elif temperature < 20 or temperature > 50:
-        stability -= 10
+    for i, aa in enumerate(sequence, start=1):
+        # Example: Calculate stability score for each residue
+        score = 80  # Base score
+        score -= abs(pH - 7) * 2
+        score += HYDROPHOBICITY.get(aa, 0) * 5  # Hydrophobicity impact
+        if temperature < 10 or temperature > 60:
+            score -= 15
+        elif temperature < 20 or temperature > 50:
+            score -= 10
+        else:
+            score -= 5
+        if solvent_accessibility == "Buried":
+            score += 5
+        elif solvent_accessibility == "Fully Exposed":
+            score -= 10
+        score = max(0, min(100, score))  # Clamp score between 0 and 100
+        stability_scores[i] = score
+        total_score += score
+
+    # Calculate average stability score
+    average_score = total_score / len(sequence) if sequence else 0
+    return stability_scores, average_score
+
+# Function for stability color gradient
+def stability_color_gradient(score):
+    # Map stability score (0-100) to a color gradient (red to green)
+    if score < 50:
+        return "red"  # Low stability
+    elif score < 70:
+        return "orange"  # Moderate stability
+    elif score < 90:
+        return "yellow"  # High stability
     else:
-        stability -= 5
-
-    if solvent_accessibility == "Buried":
-        stability += 5
-    elif solvent_accessibility == "Fully Exposed":
-        stability -= 10
-
-    return max(0, min(100, stability))
+        return "green"  # Very high stability
 
 async def fetch_pdb_async(sequence):
     headers = {'Content-Type': 'application/x-www-form-urlencoded'}
@@ -252,16 +278,12 @@ def update(sequence, ph, temperature, solvent_accessibility, highlight_residues=
         if pdb_file:
             pdb_string = pdb_file
             st.sidebar.success("Using uploaded PDB structure")
-
-            # Extract sequence from the uploaded PDB file
             sequence = extract_sequence_from_pdb(pdb_file)
             st.write(f"Extracted Sequence: {sequence}")
-
         else:
             if not sequence:
                 st.error("No sequence provided. Please enter a sequence or upload a PDB file.")
                 return
-            
             pdb_string = fetch_pdb(sequence)
 
         if pdb_string:
@@ -270,11 +292,22 @@ def update(sequence, ph, temperature, solvent_accessibility, highlight_residues=
             with open(pdb_filename, 'w') as f:
                 f.write(pdb_string)
 
-            struct = bsio.load_structure('predicted.pdb', extra_fields=["b_factor"])
-            b_value = round(struct.b_factor.mean(), 4)
+            # Calculate stability scores and average score
+            stability_scores, average_score = estimate_stability(sequence, ph, temperature, solvent_accessibility)
 
             st.subheader('Visualization of predicted protein structure')
-            render_mol(pdb_string, highlight_residues, style=vis_style, color_scheme=color_scheme)  # Updated here
+            render_mol(pdb_string, highlight_residues, style=vis_style, color_scheme=color_scheme, stability_scores=stability_scores)
+
+            # Display average stability score
+            st.subheader('Average Stability Score')
+            st.info(f"Average Stability Score: {average_score:.2f}")
+
+            # Display per-residue stability scores
+            st.subheader('Residue Stability Scores')
+            st.write(stability_scores)
+
+            struct = bsio.load_structure('predicted.pdb', extra_fields=["b_factor"])
+            b_value = round(struct.b_factor.mean(), 4)
 
             st.subheader('plDDT')
             st.write('plDDT is a per-residue estimate of the confidence in prediction on a scale from 0-100.')
@@ -289,7 +322,13 @@ def update(sequence, ph, temperature, solvent_accessibility, highlight_residues=
                 st.subheader('Critical Residues and Interactions')
                 st.write(f"Highlighted residues: {highlight_residues}")
                 st.write("These residues may play a critical role in protein function, such as active sites, binding sites, or stabilizing interactions.")
-        
+
+            # Sequence Properties
+            st.subheader("Sequence Properties")
+            properties = compute_sequence_properties(sequence)
+            for key, value in properties.items():
+                st.write(f"{key}: {round(value, 3)}")
+                
             # Compute Residue-Level Contact Map
             contact_map = compute_contact_map(pdb_filename)
             st.subheader('Residue-Level Contact Map')
@@ -303,23 +342,33 @@ def update(sequence, ph, temperature, solvent_accessibility, highlight_residues=
             # Compute Ramachandran Plot
             st.subheader("Ramachandran Plot")
             plot_ramachandran(pdb_filename)
-                
-            # Sequence Properties
-            st.subheader("Sequence Properties")
-            properties = compute_sequence_properties(sequence)
-            for key, value in properties.items():
-                st.write(f"{key}: {round(value, 3)}")
+            
+            # Add the visualization code here
+            st.subheader('Stability Scores Visualization')
+            plt.figure(figsize=(10, 4))
+            # Use gradient colors for stability scores
+            gradient_colors = [stability_color_gradient(score) for score in stability_scores.values()]
+            # Ensure highlight_residues is a list (even if empty)
+            highlight_residues = highlight_residues or []
+            # Overlay red color for critical residues
+            highlight_colors = ['blue' if residue in highlight_residues else 'none' for residue in stability_scores.keys()]
+            # Create the bar plot
+            bars = plt.bar(stability_scores.keys(), stability_scores.values(), color=gradient_colors)
+            # Overlay red color for critical residues
+            for bar, highlight_color in zip(bars, highlight_colors):
+                if highlight_color == 'blue':
+                    bar.set_edgecolor('blue')
+                    bar.set_linewidth(2)  # Add a thicker border for highlighted residues
+            plt.xlabel('Residue Index')
+            plt.ylabel('Stability Score')
+            plt.title('Per-Residue Stability Scores')
+            st.pyplot(plt)
 
             # Molecular Dynamics Simulation
             st.subheader('Molecular Dynamics Simulation')
             md_traj_file = generate_md_trajectory(pdb_filename)
             if md_traj_file:
                 st.success(f"Molecular Dynamics trajectory generated: {md_traj_file}")
-
-            # Stability Estimation
-            stability_score = estimate_stability(sequence, pH, temperature, solvent_accessibility)
-            st.subheader('Estimated Protein Stability')
-            st.info(f"Stability Score (0-100): {stability_score}")
 
             # Download buttons
             st.download_button("Download PDB", data=pdb_string, file_name='predicted.pdb', mime='text/plain')
