@@ -27,8 +27,8 @@ Ensure you have Python installed (>=3.8). This project is hosted and developed i
 
 Clone the Repository
 
-git clone https://github.com/ProteinPrediction/app.git
-cd your-project
+git clone https://github.com/SPadmaRoshini/ProteinPrediction.git
+cd ProteinPrediction
 
 Install Dependencies
 
@@ -42,10 +42,15 @@ streamlit run app.py
 
 Model Training and Testing
 
-To train and test the Transformer-GNN model (hybrid.py) without using Torch-Geometric:
-
-python hybrid.py
-
 API Integration
 
 This app fetches protein structure and sequence data via APIs instead of manual uploads. Ensure you have network access to fetch data dynamically.
+
+License
+
+This project is licensed under the MIT License. See LICENSE for details.
+
+Contact
+
+For issues and contributions, please open an issue in the repository or contact padma.roshini04@gmail.com.
+
