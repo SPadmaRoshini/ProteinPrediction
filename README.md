@@ -41,13 +41,19 @@ Running the Streamlit App :
 
 streamlit run app.py
 
-API Integration
+API Integration : 
 
 This app fetches protein structure and sequence data via APIs instead of manual uploads. Ensure you have network access to fetch data dynamically.
 
 # License
 
 This project is licensed under the MIT License. See LICENSE for details.
+
+# Contributors
+
+Padma Roshini - Co-Developer, Research, and Model Implementation
+
+Aiswaryaa Sri - Co-Developer, App Development and Model Evaluvation
 
 # Contact
 
