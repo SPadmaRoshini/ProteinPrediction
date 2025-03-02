@@ -19,4 +19,33 @@ Stability Estimation: Evaluates environmental factors affecting protein stabilit
 
 API Integration: Fetches protein structure and sequence data dynamically.
 
-Installation
+# Installation
+
+Prerequisites
+
+Ensure you have Python installed (>=3.8). This project is hosted and developed in GitHub Codespaces.
+
+Clone the Repository
+
+git clone https://github.com/ProteinPrediction/app.git
+cd your-project
+
+Install Dependencies
+
+pip install -r requirements.txt
+
+Usage
+
+Running the Streamlit App
+
+streamlit run app.py
+
+Model Training and Testing
+
+To train and test the Transformer-GNN model (hybrid.py) without using Torch-Geometric:
+
+python hybrid.py
+
+API Integration
+
+This app fetches protein structure and sequence data via APIs instead of manual uploads. Ensure you have network access to fetch data dynamically.
